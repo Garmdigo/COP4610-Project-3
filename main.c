@@ -7,294 +7,361 @@
 //
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <stdbool.h>
-#include <ctype.h>
+#include <string.h>
 
-typedef struct
-{
-	char** tokens;
-	int numTokens;
-} instruction;
+// decls
+void ls(char * DIRNAME);
 
-void addToken(instruction* instr_ptr, char* tok);
-void printTokens(instruction* instr_ptr);
-void clearInstruction(instruction* instr_ptr);
-void addNull(instruction* instr_ptr);
-void run(instruction * instr_ptr);
+#define BYTES_PER_SEC 512 //offset 11, 2 bytes
+#define RSVD_SEC_CNT 32 // offset 14, 2 bytes
+#define NUM_FATS 2 //offset 16, 1 byte
+#define FATSZ_32 1009 //offset 36, 4 bytes <- # OF SECTORS IN A FAT
+#define SEC_PER_CLUS 1 //offset 13, 1 byte
 
-int main(int argc, const char * argv[])
-{
+#define FATStart 16384
+#define MaxItems 32
 
-	char* token = NULL;
-	char* temp = NULL;
-	instruction instr;
-	instr.tokens = NULL;
-	instr.numTokens = 0;
-	while (1) {
-		printf("Enter Command:");
-		do {
-			scanf("%ms",&token);
-			temp = (char*)malloc((strlen(token) + 1) * sizeof(char));
-			int i;
-			int start = 0;
-        addToken(&instr,token);
-          start = i + 1;
+// BPB_RootClus: offset 44, 4 bytes
 
-		if (start < strlen(token)) {
-				memcpy(temp, token + start, strlen(token) - start);
-				temp[i-start] = '\0';
-				addToken(&instr, temp);
-			}
-			free(token);
-			free(temp);
+//Region offsets//
+// offset to FAT: 16384
+// offset to data: 1049600
 
-			token = NULL;
-			temp = NULL;
+// Total FAT region size: 1033216
 
 
-		} while ('\n' != getchar());    //until end of line is reached
-		addNull(&instr);
-      //  printTokens(&instr);
-		run(&instr);
+//--EQUATIONS--//
 
-		clearInstruction(&instr);
-	}
+// RSVD_SEC_CNT * BYTES_PER_SEC = RESERVED_REGION_SIZE_BYTES
+// FATSZ_32 * NUM_FATS * BYTES_PER_SEC = FAT_REGION_SIZE_BYTES
+// FirstSectorOfACluster = FirstDataSector + ((N-2)*SEC_PER_CLUS
 
-	return 0;
+// MARK: GLOBALS
+
+FILE * __fat_fp;
+uint32_t currentDirectory = 2;  // FAT slot
+
+typedef struct metaData{
+    int BtyesPerSec;
+    int RSVDSecCount;
+    int FATS;
+    int FATSize;
+    int secsPerCluster;
+    int BPB_RootEntCnt;
+    int jmpBoot;
+    int OEMName;
+    int BPB_TotSec32;
+    
+}metaData;
+
+struct DirEntry{
+    uint8_t fileName[11]; // bytes 0-10
+    uint8_t attributes; //byte 11
+    uint8_t reserved; //byte 12
+    uint8_t timeStampTenth; // file creation in tenths of second, byte 13
+    uint16_t timeStampHourMinSec; // file creation in hours, mins, secs bytes 14 & 15
+    uint16_t creationDate; //bytes 16 & 17
+    uint16_t accessDate; // bytes 18 & 19
+    uint16_t Hi; // high order 2 bytes of address of first cluster; bytes 20 & 21
+    uint16_t modifiedTime; // bytes 22 & 23
+    uint16_t modifiedDate; //bytes 24 & 25
+    uint16_t Lo; // bytes 26 & 27
+    uint32_t fileSize; //0 for directories; bytes 28-31
+    
+    
+}__attribute__((packed)) DirEntry;
+
+metaData BootSector;
+
+int cluster(int n){
+    //hard coded data region value, fix later
+    return 1049600 +((n-2) * SEC_PER_CLUS) * BYTES_PER_SEC;
 }
 
-void FATexit(){
+uint16_t getFirstCluster(uint16_t hi, uint16_t lo) {
+    return (hi<<8) | lo;
+}
 
+void *get(u_int64_t offset, int length){
+    
+    void *data = (void *)malloc(length);
+    fseek(__fat_fp, offset, SEEK_SET);
+    fread(data, length, 1, __fat_fp);
+    
+    return data;
+}
+
+uint32_t getUInt32(u_int64_t offset) {
+    uint32_t result;
+    
+    fseek(__fat_fp, offset, SEEK_SET);
+    fread(&result, sizeof(uint32_t), 1, __fat_fp);
+    return result;
+    
+}
+
+uint16_t getUInt16(u_int64_t offset) {
+    uint16_t result;
+    
+    fseek(__fat_fp, offset, SEEK_SET);
+    fread(&result, sizeof(uint16_t), 1, __fat_fp);
+    return result;
+    
+}
+
+uint8_t getUInt8(u_int64_t offset) {
+    uint8_t result;
+    
+    fseek(__fat_fp, offset, SEEK_SET);
+    fread(&result, sizeof(uint8_t), 1, __fat_fp);
+    return result;
+    
+}
+
+void memcpyX(void *target, const void *source, size_t size) {
+    
+    int* result = (int *)target;
+    memcpy(target,source,size);
+    //printing 4 bytes of buffer in HEX
+    printf("%04X \n",*result);
+    
+}
+
+void getDirEntries(void *data){
+    //    uint32_t leader = 0;
+    //    uint8_t attributes = 0xFF;
+    //    const uint8_t DirStructSz = 32;
+    struct DirEntry *result = data;
+    
+    // end of list for root is 0x00000000
+    // end of list for other directories may be 0xFFFFFFFF
+    //    memcpyX(&leader, source, 1);
+    //
+    //
+    //    memcpyX(&attributes, source + 11, 1);
+    //
+    //    source += DirStructSz - 11;
+    
+    
+    
+    
+    
+}
+
+void **getFatData(uint32_t at) {
+    
+    uint32_t locations[MaxItems];
+    void **data = malloc(MaxItems * sizeof(void *));
+    int location_index = 0;
+    int data_index = 0;
+    uint32_t currentLocation = at;
+    
+    locations[location_index] = currentLocation;
+    int nextValue = (currentLocation * 4) + FATStart;
+    
+    
+    while ( (currentLocation != 0x0FFFFFF8 && currentLocation != 0xFFFFFFFF) &&
+           data_index < MaxItems - 1 ) {
+        void *dataPart = get(cluster(currentLocation), 512);
+        data[data_index] = dataPart;
+        
+        // next data location
+        currentLocation = getUInt32(nextValue);
+        locations[location_index] = currentLocation;
+        nextValue = (currentLocation * 4) + FATStart;
+        
+        // advance
+        data_index++;
+        location_index++;
+    }
+    
+    
+    data[data_index] = NULL;
+    return data;
+    
+    
+}
+
+
+FILE * _FATOpen() {
+#ifdef __APPLE__
+    FILE *fp;
+    fp = fopen ("/Users/samuelparmer/Desktop/C++ Projects/C Projects/FAT32/FAT32/fat32.img","r+");
+    return fp;
+    
+#endif
+    
+    //implemet with argv[0] param on linprog
+    return 0;
+}
+
+
+
+// MARK: Required
+
+void FATexit(){
+    
     //free all resources
+    
+    fclose(__fat_fp);
     exit(0);
 }
 
 void info(){
     //parse boot sector, print info for each entry
+    // come back and add all other fat fields!
+    BootSector.BtyesPerSec = getUInt16(11);
+    BootSector.secsPerCluster = getUInt8(13);
+    BootSector.FATS = getUInt8(16);
+    BootSector.RSVDSecCount = getUInt16(14);
+    BootSector.FATSize = getUInt32(36);
+    BootSector.BPB_RootEntCnt = getUInt16(17);
+    BootSector.BPB_TotSec32 = getUInt16(32);
+    
+    printf("Bytes per sector: %d\n",BootSector.BtyesPerSec);
+    printf("Sectors per cluster: %d\n",BootSector.secsPerCluster);
+    printf("Reserved sector count: %d\n",BootSector.RSVDSecCount);
+    printf("Number of FATS: %d\n",BootSector.FATS);
+    printf("Size of FATS: %d\n",BootSector.FATSize);
+    printf("Root entries count: %d\n",BootSector.BPB_RootEntCnt); //use to calc how big root dir is, each entry is 32 bytes
+    printf("TotSec32: %d\n",BootSector.BPB_TotSec32);
+    
+    
+    
 }
 
 void size(char * FILENAME){
     //print size of file in the current working dir in bytes, error if not found.
+    
+}
 
+typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
+
+int directory_do(dir_op_t item_op, void **data, void *param){
+    
+    int i,j,exiting = 0;
+    
+    for(i = 0; i < MaxItems; i++){
+        if(data[i] == NULL) { break; }
+        struct DirEntry *entries = data[i];
+        //        printf("DirEntry size: %lu", sizeof(DirEntry));
+        for(j = 0; j < 16; j++) {
+            if (entries[j].attributes == 0x0f) { continue; }
+            if (entries[j].fileName[0] == 0) { break; }
+            
+            // operated...
+            if ((exiting = item_op(&entries[j], param))) { break; }
+            
+        }
+        if (exiting) { break; }
+    }
+    return exiting;
+}
+
+int dir_print (struct DirEntry *entry, void *param)  { printf("%.11s\n", entry->fileName); return 0; }
+int dir_change(struct DirEntry *entry, void *param)  {
+    // directories matching name with blanks padded...
+    printf("%.11s\n", entry->fileName);
+    uint32_t newdir = 0;
+    if ( (entry->attributes == 0x10) &&
+        (strncmp(param, (const char *)entry->fileName, 11) == 0) ) {
+        // traverse to directory
+        // TODO: Setup the directory properly...
+        newdir =  cluster(getFirstCluster(entry->Hi, entry->Lo));
+        printf("*** New Cluster Number: %d\n", newdir);
+        //        newdir = 3;
+        
+        
+        // ...
+        currentDirectory = newdir;
+        
+    }
+    return newdir;   // done & done
+}
+
+int dir_print_sub(struct DirEntry *entry, void *param)  {
+    // directories matching name with blanks padded...
+    
+    uint32_t newdir = 0;
+    uint32_t saved = currentDirectory;
+    if ((newdir = dir_change(entry, param))) {
+        ls(NULL);
+        currentDirectory = saved;
+    }
+    return newdir;
+    
 }
 
 void ls(char * DIRNAME){
     //list name of all directories in the current dir including . and ..
+    void**data = getFatData(currentDirectory);
+    if (DIRNAME == NULL) {
+        directory_do(dir_print,  data, NULL);
+    } else {
+        directory_do(dir_print_sub, data, DIRNAME);
+    }
+    
 }
+
 
 void cd(char * DIRNAME){
-
+    void**data = getFatData(currentDirectory);
+    directory_do(dir_change, data, DIRNAME);
 }
 
-void create(char * FILENAME){
+int create(char * FILENAME){
     //create a file of size 0 in cwd
+    
+    // 1) guard - filename not in directory
+    
+    
+    // 2)
+    
+    return 0;
+    
 }
 
 void  FATmkdir(char * DIRNAME){
-
+    
 }
 
 void FATOpen(char * FILENAME, char * MODE){
     //open file for reading or writing. Need to maintain a table of files that are open
-
+    
 }
 
 void FATClose(char * FILENAME){
     //open file for reading or writing. Need to maintain a table of files that are open
-
+    
 }
 
 void FATRead(char * FILENAME, int OFFSET){
-
+    
 }
 
 void FATWrite(char * FILENAME, int OFFSET){
-
+    
 }
 
 void rm(char * FILENAME){
-
+    
 }
 
 void FATrmdir(char * DIRNAME){
-
-}
-void addToken(instruction* instr_ptr, char* tok)
-{
-	//extend token array to accomodate an additional token
-	if (instr_ptr->numTokens == 0)
-		instr_ptr->tokens = (char**) malloc(sizeof(char*));
-	else
-		instr_ptr->tokens = (char**) realloc(instr_ptr->tokens, (instr_ptr->numTokens+1) * sizeof(char*));
-
-	//allocate char array for new token in new slot
-	instr_ptr->tokens[instr_ptr->numTokens] = (char *)malloc((strlen(tok)+1) * sizeof(char));
-	strcpy(instr_ptr->tokens[instr_ptr->numTokens], tok);
-
-	instr_ptr->numTokens++;
+    
 }
 
-void addNull(instruction* instr_ptr)
-{
-	//extend token array to accomodate an additional token
-	if (instr_ptr->numTokens == 0)
-		instr_ptr->tokens = (char**)malloc(sizeof(char*));
-	else
-		instr_ptr->tokens = (char**)realloc(instr_ptr->tokens, (instr_ptr->numTokens+1) * sizeof(char*));
 
-	instr_ptr->tokens[instr_ptr->numTokens] = (char*) NULL;
-	instr_ptr->numTokens++;
+
+int main(int argc, const char * argv[]) {
+    
+    __fat_fp = _FATOpen();
+    
+    ls("GREEN      ");
+    
+    
+    FATexit();
+    return 0;
 }
-
-void printTokens(instruction* instr_ptr)
-{
-	int i;
-	printf("Tokens:\n");
-	for (i = 0; i < instr_ptr->numTokens; i++) {
-		if ((instr_ptr->tokens)[i] != NULL)
-			printf("%s\n", (instr_ptr->tokens)[i]);
-	}
-}
-void run(instruction * instr_ptr)
-{
-	int i=0;
-		if ((instr_ptr->tokens)[i] != NULL)
-			{
-				if(strcmp(instr_ptr->tokens[i], "exit")==0)
-				{
-                    FATexit();
-
-                }
-					else if (strcmp(instr_ptr->tokens[i], "info")==0)
-					{
-
-                       if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                        printf("Error:too many commands\n");
-                    }
-                    }
-					else if (strcmp(instr_ptr->tokens[i], "size")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-
-					}
-					else if (strcmp(instr_ptr->tokens[i], "ls")==0)
-					{
-                      if(instr_ptr->tokens[i+1]!=NULL)
-                        {
-
-                        }
-
-                        else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "cd")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "creat")==0)
-				{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                     else
-                        printf("Error:not enough commands\n");
-				}
-				else if (strcmp(instr_ptr->tokens[i], "mkdir")==0)
-					{
-
-					 if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-                    }
-					else if (strcmp(instr_ptr->tokens[i], "open")==0)
-					{
-					 if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL)
-                    {
-
-                    }
-                      else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "close")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                     else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "read")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
-                    {
-
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-						}
-					else if (strcmp(instr_ptr->tokens[i], "write")==0)
-					{
-					 if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
-                    {
-
-                    }
-                     else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "rm")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-					}
-                    else if (strcmp(instr_ptr->tokens[i], "rmdir")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-					}
-					else
-                        printf("No valid commmand given. Try again.\n");
-			}
-
-}
-void clearInstruction(instruction* instr_ptr)
-{
-	int i;
-	for (i = 0; i < instr_ptr->numTokens; i++)
-		free(instr_ptr->tokens[i]);
-
-	free(instr_ptr->tokens);
-
-	instr_ptr->tokens = NULL;
-	instr_ptr->numTokens = 0;
-}
-
