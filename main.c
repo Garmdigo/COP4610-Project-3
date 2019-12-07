@@ -75,6 +75,20 @@ struct DirEntry{
 
 metaData BootSector;
 
+
+FILE * _FATOpen() {
+#ifdef __APPLE__
+    FILE *fp;
+    fp = fopen ("/Users/samuelparmer/Desktop/C++ Projects/C Projects/FAT32/FAT32/fat32.img","r+");
+    return fp;
+    
+#endif
+    
+    //implemet with argv[0] param on linprog
+    return 0;
+}
+
+
 int cluster(int n){
     //hard coded data region value, fix later
     return 1049600 +((n-2) * SEC_PER_CLUS) * BYTES_PER_SEC;
@@ -129,26 +143,6 @@ void memcpyX(void *target, const void *source, size_t size) {
     
 }
 
-void getDirEntries(void *data){
-    //    uint32_t leader = 0;
-    //    uint8_t attributes = 0xFF;
-    //    const uint8_t DirStructSz = 32;
-    struct DirEntry *result = data;
-    
-    // end of list for root is 0x00000000
-    // end of list for other directories may be 0xFFFFFFFF
-    //    memcpyX(&leader, source, 1);
-    //
-    //
-    //    memcpyX(&attributes, source + 11, 1);
-    //
-    //    source += DirStructSz - 11;
-    
-    
-    
-    
-    
-}
 
 void **getFatData(uint32_t at) {
     
@@ -162,7 +156,7 @@ void **getFatData(uint32_t at) {
     int nextValue = (currentLocation * 4) + FATStart;
     
     
-    while ( (currentLocation != 0x0FFFFFF8 && currentLocation != 0xFFFFFFFF) &&
+    while ( (currentLocation != 0xFFFFFF0F  && currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8) &&
            data_index < MaxItems - 1 ) {
         void *dataPart = get(cluster(currentLocation), 512);
         data[data_index] = dataPart;
@@ -185,18 +179,98 @@ void **getFatData(uint32_t at) {
 }
 
 
-FILE * _FATOpen() {
-#ifdef __APPLE__
-    FILE *fp;
-    fp = fopen ("/Users/samuelparmer/Desktop/C++ Projects/C Projects/FAT32/FAT32/fat32.img","r+");
-    return fp;
+
+
+typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
+
+int match_FAT_spec(struct DirEntry *entry,  void *name, uint8_t type){
+    // match exact spec;  0xFF for any type
+    if ( ((type == 0xFF) || (entry->attributes == type)) &&
+        (strncmp(name, (const char *)entry->fileName, 11) == 0) ) {
+        return 1;}
     
-#endif
-    
-    //implemet with argv[0] param on linprog
     return 0;
+    
 }
 
+int directory_do(dir_op_t item_op, uint32_t dir, void *param){
+    
+    int i,j,exiting = 0;
+    int dotdirs = -1;
+    void**data = getFatData(currentDirectory);
+    
+    for(i = 0; i < MaxItems; i++){
+        if(data[i] == NULL) { break; }
+        struct DirEntry *entries = data[i];
+        //        printf("DirEntry size: %lu", sizeof(DirEntry));
+        for(j = 0; j < 16; j++) {
+            if (entries[j].attributes == 0x0f) { continue; }
+            if (entries[j].fileName[0] ==  0 ) { break; }
+            if (entries[j].fileName[0] == '.') {
+                if (dotdirs < 1) {
+                    dotdirs += 1;
+                } else {
+                    exiting = -1;
+                    break;
+                }
+            }
+            
+            // operated...
+            if ((exiting = item_op(&entries[j], param))) { break; }
+            
+        }
+        if (exiting) { break; }
+    }
+    return exiting;
+}
+
+int dir_print (struct DirEntry *entry, void *param)  {
+    printf("%.11s\n", entry->fileName); return 0;
+}
+int dir_change(struct DirEntry *entry, void *param)  {
+    // directories matching name with blanks padded...
+    printf("%.11s\n", entry->fileName);
+    uint32_t newdir = 0;
+    
+    //    if ( (entry->attributes == 0x10) &&
+    //         (strncmp(param, (const char *)entry->fileName, 11) == 0) ) {
+    if (match_FAT_spec(entry, param, 0x10)) {
+        // traverse to directory
+        // TODO: Setup the directory properly...
+        newdir =  435;// 458; //cluster(getFirstCluster(entry->Hi, entry->Lo));
+        printf("*** New Cluster Number: %d\n", newdir);
+        //        newdir = 3;
+        
+        
+        // ...
+        currentDirectory = newdir;
+        
+    }
+    return newdir;   // done & done
+}
+
+int dir_print_sub(struct DirEntry *entry, void *param)  {
+    // directories matching name with blanks padded...
+    
+    uint32_t newdir = 0;
+    uint32_t saved = currentDirectory;
+    if ((newdir = dir_change(entry, param))) {
+        ls(NULL);
+        currentDirectory = saved;
+    }
+    return newdir;
+}
+
+int dir_get_size(struct DirEntry *entry, void *param)  {
+    // directories matching name with blanks padded...
+    
+    if (match_FAT_spec(entry, param, 0xFF)) {
+        return entry->fileSize ? entry->fileSize : -1;
+    }
+    
+    return 0;
+    
+}
 
 
 // MARK: Required
@@ -234,81 +308,33 @@ void info(){
 
 void size(char * FILENAME){
     //print size of file in the current working dir in bytes, error if not found.
-    
-}
-
-typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
-
-int directory_do(dir_op_t item_op, void **data, void *param){
-    
-    int i,j,exiting = 0;
-    
-    for(i = 0; i < MaxItems; i++){
-        if(data[i] == NULL) { break; }
-        struct DirEntry *entries = data[i];
-        //        printf("DirEntry size: %lu", sizeof(DirEntry));
-        for(j = 0; j < 16; j++) {
-            if (entries[j].attributes == 0x0f) { continue; }
-            if (entries[j].fileName[0] == 0) { break; }
-            
-            // operated...
-            if ((exiting = item_op(&entries[j], param))) { break; }
-            
-        }
-        if (exiting) { break; }
+    int sz = directory_do(dir_get_size,currentDirectory, FILENAME);
+    //TODO: error if not found
+    if (sz == 0) {
+        // file was not found, handle error here:
+        printf("%.11s file not found.\n", FILENAME);
+    } else {
+        printf("%.11s %d\n", FILENAME, (sz == -1) ? 0 : sz);
     }
-    return exiting;
-}
-
-int dir_print (struct DirEntry *entry, void *param)  { printf("%.11s\n", entry->fileName); return 0; }
-int dir_change(struct DirEntry *entry, void *param)  {
-    // directories matching name with blanks padded...
-    printf("%.11s\n", entry->fileName);
-    uint32_t newdir = 0;
-    if ( (entry->attributes == 0x10) &&
-        (strncmp(param, (const char *)entry->fileName, 11) == 0) ) {
-        // traverse to directory
-        // TODO: Setup the directory properly...
-        newdir =  cluster(getFirstCluster(entry->Hi, entry->Lo));
-        printf("*** New Cluster Number: %d\n", newdir);
-        //        newdir = 3;
-        
-        
-        // ...
-        currentDirectory = newdir;
-        
-    }
-    return newdir;   // done & done
-}
-
-int dir_print_sub(struct DirEntry *entry, void *param)  {
-    // directories matching name with blanks padded...
     
-    uint32_t newdir = 0;
-    uint32_t saved = currentDirectory;
-    if ((newdir = dir_change(entry, param))) {
-        ls(NULL);
-        currentDirectory = saved;
-    }
-    return newdir;
     
 }
 
 void ls(char * DIRNAME){
     //list name of all directories in the current dir including . and ..
-    void**data = getFatData(currentDirectory);
+    //    void**data = getFatData(currentDirectory);
     if (DIRNAME == NULL) {
-        directory_do(dir_print,  data, NULL);
+        directory_do(dir_print,     currentDirectory, NULL);
     } else {
-        directory_do(dir_print_sub, data, DIRNAME);
+        directory_do(dir_print_sub, currentDirectory, DIRNAME);
     }
     
 }
 
 
 void cd(char * DIRNAME){
-    void**data = getFatData(currentDirectory);
-    directory_do(dir_change, data, DIRNAME);
+    //    void**data = getFatData(currentDirectory);
+    directory_do(dir_change, currentDirectory, DIRNAME);
 }
 
 int create(char * FILENAME){
@@ -359,7 +385,11 @@ int main(int argc, const char * argv[]) {
     
     __fat_fp = _FATOpen();
     
-    ls("GREEN      ");
+    size("GLADDIO     ");
+    size("LONGFILE     ");
+    cd("GREEN      ");
+    ls(NULL);
+    ls("F001       ");
     
     
     FATexit();
