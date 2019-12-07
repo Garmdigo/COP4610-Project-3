@@ -234,7 +234,7 @@ void run(instruction * instr_ptr)
 
                     }
                       else
-                        printf("Error:not enough commands");
+                        printf("Error:not enough commands\n");
 					}
 					else if (strcmp(instr_ptr->tokens[i], "close")==0)
 					{
@@ -252,7 +252,7 @@ void run(instruction * instr_ptr)
 
                     }
                     else
-                        printf("Error:not enough commands");
+                        printf("Error:not enough commands\n");
 						}
 					else if (strcmp(instr_ptr->tokens[i], "write")==0)
 					{
