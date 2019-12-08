@@ -73,8 +73,63 @@ struct DirEntry{
     
 }__attribute__((packed)) DirEntry;
 
-metaData BootSector;
 
+struct LList {
+    struct LList *next;
+    void *data;
+};
+typedef struct LList *node; //
+
+struct LLHead {
+    node start;
+    node end;
+};
+typedef struct LLHead *head;
+
+
+
+node newNode(void *data){
+    node temp; // declare a node
+    temp = (node)malloc(sizeof(struct LList)); // allocate memory using malloc()
+    temp->next = NULL;// make next point to NULL
+    temp->data = data;
+    return temp;
+}
+
+node addNode(head head, void *data){
+    node last_end = head->end;
+    head->end = newNode(data);
+    
+    head->start   = (head->start == NULL) ? head->end : head->start;
+    if (last_end != NULL) { last_end->next = head->end; }
+    return head->end;
+    
+}
+
+head newHead(){
+    return (head) calloc(sizeof(struct LLHead), 1);
+}
+
+//mode 1 = read, 2 = write, 3 = read and write
+enum FileMode{
+    mode_read = 1,
+    mode_write = 2,
+    mode_read_write = 3
+} ;
+
+struct FileEntry {
+    uint32_t cluster;
+    enum FileMode mode;
+};
+typedef struct FileEntry *fatfile;
+
+
+
+
+
+head FATHead;
+metaData BootSector;
+//char *FileName;
 
 FILE * _FATOpen() {
 #ifdef __APPLE__
@@ -205,7 +260,7 @@ int directory_do(dir_op_t item_op, uint32_t dir, void *param){
         //        printf("DirEntry size: %lu", sizeof(DirEntry));
         for(j = 0; j < 16; j++) {
             if (entries[j].attributes == 0x0f) { continue; }
-            if (entries[j].fileName[0] ==  0 ) { break; }
+            if (entries[j].fileName[0] ==  0 ) { exiting = -1; break; }
             if (entries[j].fileName[0] == '.') {
                 if (dotdirs < 1) {
                     dotdirs += 1;
@@ -227,6 +282,15 @@ int directory_do(dir_op_t item_op, uint32_t dir, void *param){
 int dir_print (struct DirEntry *entry, void *param)  {
     printf("%.11s\n", entry->fileName); return 0;
 }
+
+void *dir_entry (struct DirEntry *entry, void *param)  {
+    
+    if ((strncmp(param, (const char *)entry->fileName, 11) == 0) ) {
+        return entry;}
+    
+    return 0;
+}
+
 int dir_change(struct DirEntry *entry, void *param)  {
     // directories matching name with blanks padded...
     printf("%.11s\n", entry->fileName);
@@ -237,7 +301,7 @@ int dir_change(struct DirEntry *entry, void *param)  {
     if (match_FAT_spec(entry, param, 0x10)) {
         // traverse to directory
         // TODO: Setup the directory properly...
-        newdir =  435;// 458; //cluster(getFirstCluster(entry->Hi, entry->Lo));
+        newdir =  getFirstCluster(entry->Hi, entry->Lo);
         printf("*** New Cluster Number: %d\n", newdir);
         //        newdir = 3;
         
@@ -271,6 +335,18 @@ int dir_get_size(struct DirEntry *entry, void *param)  {
     return 0;
     
 }
+
+int dir_get_cluster(struct DirEntry *entry, void *param)  {
+    // directories matching name with blanks padded...
+    
+    if (match_FAT_spec(entry, param, 0xFF)) {
+        return getFirstCluster(entry->Hi, entry->Lo);
+    }
+    
+    return 0;
+    
+}
+
 
 
 // MARK: Required
@@ -308,21 +384,20 @@ void info(){
 
 void size(char * FILENAME){
     //print size of file in the current working dir in bytes, error if not found.
+    
     int sz = directory_do(dir_get_size,currentDirectory, FILENAME);
     //TODO: error if not found
     if (sz == 0) {
         // file was not found, handle error here:
-        printf("%.11s file not found.\n", FILENAME);
+        printf("ERROR: %.11s - file not found.\n", FILENAME);
     } else {
         printf("%.11s %d\n", FILENAME, (sz == -1) ? 0 : sz);
     }
-    
-    
 }
 
 void ls(char * DIRNAME){
     //list name of all directories in the current dir including . and ..
-    //    void**data = getFatData(currentDirectory);
+    
     if (DIRNAME == NULL) {
         directory_do(dir_print,     currentDirectory, NULL);
     } else {
@@ -333,7 +408,6 @@ void ls(char * DIRNAME){
 
 
 void cd(char * DIRNAME){
-    //    void**data = getFatData(currentDirectory);
     directory_do(dir_change, currentDirectory, DIRNAME);
 }
 
@@ -353,13 +427,65 @@ void  FATmkdir(char * DIRNAME){
     
 }
 
-void FATOpen(char * FILENAME, char * MODE){
+fatfile FATOpen(char * FILENAME, enum FileMode mode){
     //open file for reading or writing. Need to maintain a table of files that are open
     
+    // 1) guard - filename not in directory
+    uint32_t cluster = directory_do(dir_get_cluster,currentDirectory, FILENAME);
+    //TODO: error if not found
+    if (cluster == 0) {
+        // file was found, handle error here:
+        printf("ERROR: %.11s - file not found.\n", FILENAME);
+        return NULL;
+    }
+    
+    fatfile file = malloc(sizeof(struct FileEntry));
+    file->cluster = cluster;
+    file->mode = mode;
+    addNode(FATHead, file);
+    return file;
 }
 
 void FATClose(char * FILENAME){
-    //open file for reading or writing. Need to maintain a table of files that are open
+    //close file for reading or writing. Need to maintain a table of files that are open
+    
+    // is it in the current directory?
+    uint32_t cluster = directory_do(dir_get_cluster,currentDirectory, FILENAME);
+    //TODO: error if not found
+    if (cluster == 0) {
+        // file was found, handle error here:
+        printf("ERROR: %.11s - file not found.\n", FILENAME);
+        return;
+    }
+    
+    
+    // traverse
+    node p  = FATHead->start;
+    node last = (node)FATHead;
+    int8_t found = 0;
+    while(p != NULL){
+        
+        // find...; remove link.
+        if (((fatfile)(p->data))->cluster == cluster) {
+            found = 1;
+            last->next = p->next;
+            free(p->data);
+            free(p);
+            
+            if(FATHead->start == NULL) {FATHead->end = NULL;}
+            
+            break;
+        }
+        
+        last = p; p = p->next;
+        
+    }
+    
+    
+    
+    
+    
+    
     
 }
 
@@ -372,24 +498,41 @@ void FATWrite(char * FILENAME, int OFFSET){
 }
 
 void rm(char * FILENAME){
-    
+    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+    //TODO: error if not found
+    //    if (entry == 0) {
+    //        // file was found, handle error here:
+    //        printf("ERROR: %.11s - file not found.\n", FILENAME);
+    //    }
+    //
+    printf("about to remove file %s", entry->fileName);
 }
 
 void FATrmdir(char * DIRNAME){
     
 }
 
-
+char *padName(char *name){
+    
+    name = realloc(name, (strlen(name)+12) * sizeof(char));
+    
+    return strcat(name, "           ");
+}
 
 int main(int argc, const char * argv[]) {
     
+    // init globals
+    FATHead = newHead();
     __fat_fp = _FATOpen();
     
+    // test operations
+    fatfile ff = FATOpen("HELLO           ", mode_read);
+    FATClose("HELLO       ");
     size("GLADDIO     ");
-    size("LONGFILE     ");
-    cd("GREEN      ");
+    size("LONGFILE         ");
+    cd("RED          ");
     ls(NULL);
-    ls("F001       ");
+    ls("RED001       ");
     
     
     FATexit();
