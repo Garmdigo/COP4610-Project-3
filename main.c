@@ -408,7 +408,7 @@ void ls(char * DIRNAME){
     //list name of all directories in the current dir including . and ..
 
     if (DIRNAME == NULL) {
-        directory_do(dir_print,     currentDirectory, NULL);
+        directory_do(dir_print,currentDirectory, NULL);
     } else {
         directory_do(dir_print_sub, currentDirectory, DIRNAME);
     }
@@ -483,8 +483,8 @@ int main(int argc, const char * argv[])
     if(!argv[1] || strlen(argv[1]) < 1)
     {
         printf("Error:Couldn't import file\n");
-        exit(0);
-
+        printf("Using default parameters.\n");
+        __fat_fp = _FATOpen("fat32.img");
     }
     else
     {
