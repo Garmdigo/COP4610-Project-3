@@ -251,9 +251,6 @@ void **getFatData(uint32_t at) {
 
 }
 
-
-
-
 typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
 
 int match_FAT_spec(struct DirEntry *entry,  void *name, uint8_t type){
@@ -278,7 +275,7 @@ int directory_do(dir_op_t item_op, uint32_t dir, void *param){
         //        printf("DirEntry size: %lu", sizeof(DirEntry));
         for(j = 0; j < 16; j++) {
             if (entries[j].attributes == 0x0f) { continue; }
-            if (entries[j].fileName[0] ==  0 ) { break; }
+            if (entries[j].fileName[0] ==  0 ) { exiting = -1; break; }
             if (entries[j].fileName[0] == '.') {
                 if (dotdirs < 1) {
                     dotdirs += 1;
@@ -299,6 +296,14 @@ int directory_do(dir_op_t item_op, uint32_t dir, void *param){
 
 int dir_print (struct DirEntry *entry, void *param)  {
     printf("%.11s\n", entry->fileName); return 0;
+}
+
+void *dir_entry (struct DirEntry *entry, void *param)  {
+
+    if ((strncmp(param, (const char *)entry->fileName, 11) == 0) ) {
+        return entry;}
+
+    return 0;
 }
 int dir_change(struct DirEntry *entry, void *param)  {
     // directories matching name with blanks padded...
@@ -447,6 +452,7 @@ fatfile FATOpen(char * FILENAME, enum FileMode mode){
         printf("ERROR: %.11s - file not found.\n", FILENAME);
         return NULL;
     }
+
     fatfile file = malloc(sizeof(struct FileEntry));
     file->cluster = cluster;
     file->mode = mode;
@@ -455,8 +461,39 @@ fatfile FATOpen(char * FILENAME, enum FileMode mode){
 }
 
 void FATClose(char * FILENAME){
-    //open file for reading or writing. Need to maintain a table of files that are open
+    //close file for reading or writing. Need to maintain a table of files that are open
 
+    // is it in the current directory?
+    uint32_t cluster = directory_do(dir_get_cluster,currentDirectory, FILENAME);
+    //TODO: error if not found
+    if (cluster == 0) {
+        // file was found, handle error here:
+        printf("ERROR: %.11s - file not found.\n", FILENAME);
+        return;
+    }
+
+
+    // traverse
+    node p  = FATHead->start;
+    node last = (node)FATHead;
+    int8_t found = 0;
+    while(p != NULL){
+
+        // find...; remove link.
+        if (((fatfile)(p->data))->cluster == cluster) {
+            found = 1;
+            last->next = p->next;
+            free(p->data);
+            free(p);
+
+            if(FATHead->start == NULL) {FATHead->end = NULL;}
+
+            break;
+        }
+
+        last = p; p = p->next;
+
+    }
 }
 
 void FATRead(char * FILENAME, int OFFSET){
@@ -468,13 +505,27 @@ void FATWrite(char * FILENAME, int OFFSET){
 }
 
 void rm(char * FILENAME){
-
+    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+    //TODO: error if not found
+    //    if (entry == 0) {
+    //        // file was found, handle error here:
+    //        printf("ERROR: %.11s - file not found.\n", FILENAME);
+    //    }
+    //
+    printf("about to remove file %s", entry->fileName);
 }
 
 void FATrmdir(char * DIRNAME){
 
 }
 
+char *padName(char *destination,char *src){
+
+    //name = realloc(name, (strlen(name)+12) * sizeof(char));
+
+    sprintf(destination, "%s           ", src);
+    return destination;
+}
 
 
 int main(int argc, const char * argv[])
@@ -569,6 +620,7 @@ void printTokens(instruction* instr_ptr)
 }
 void run(instruction * instr_ptr)
 {
+    char padded[23];
 	int i=0;
 		if ((instr_ptr->tokens)[i] != NULL)
 			{
@@ -582,7 +634,7 @@ void run(instruction * instr_ptr)
 
                        if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                       info(instr_ptr->tokens[i+1]);
+                       info(padName(padded,instr_ptr->tokens[i+1]));
                         printf("Error:too many commands\n");
                     }
                     }
@@ -590,7 +642,7 @@ void run(instruction * instr_ptr)
 					{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                          size(instr_ptr->tokens[i+1]);
+                          size(padName(padded,instr_ptr->tokens[i+1]));
                     }//
                     else
                         printf("Error:not enough commands\n");
@@ -600,8 +652,7 @@ void run(instruction * instr_ptr)
 					{
                       if(instr_ptr->tokens[i+1]!=NULL)
                         {
-                            printf("here\n");
-                          ls(instr_ptr->tokens[i+1]);
+                          ls(padName(padded,instr_ptr->tokens[i+1]));
                         }
 
                         else
@@ -611,7 +662,7 @@ void run(instruction * instr_ptr)
 					{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                       cd(instr_ptr->tokens[i+1]);
+                       cd(padName(padded,instr_ptr->tokens[i+1]));
                     }
                     else
                         printf("Error:not enough commands\n");
@@ -620,7 +671,7 @@ void run(instruction * instr_ptr)
 				{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                          //creat(instr_ptr->tokens[i+1]);
+                          //creat(padded(padded,instr_ptr->tokens[i+1])_;
                     }
                      else
                         printf("Error:not enough commands\n");
@@ -630,7 +681,7 @@ void run(instruction * instr_ptr)
 
 					 if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                          //mkdir(instr_ptr->tokens[i+1]);
+                          //mkdir(padded(padded,instr_ptr->tokens[i+1]));
                     }
                     else
                         printf("Error:not enough commands\n");
@@ -639,7 +690,7 @@ void run(instruction * instr_ptr)
 					{
 					 if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL)
                     {
-                          //open(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2]);
+                          //FATOpen((instr_ptr->tokens[i+1],instr_ptr->tokens[i+2]));
                     }
                       else
                         printf("Error:not enough commands\n ");
@@ -648,7 +699,7 @@ void run(instruction * instr_ptr)
 					{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                          //close(instr_ptr->tokens[i+1]);
+                          //FATClose(padName(padded,instr_ptr->tokens[i+1]));
                     }
                      else
                         printf("Error:not enough commands\n");
@@ -657,7 +708,7 @@ void run(instruction * instr_ptr)
 					{
                     if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
                     {
-                        //read(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
+                       //FATRead(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
                     }
                     else
                         printf("Error:not enough commands\n");
@@ -666,7 +717,7 @@ void run(instruction * instr_ptr)
 					{
 					 if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
                     {
-                        //write(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
+                        //FATWrite(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
                     }
                      else
                         printf("Error:not enough commands\n");
@@ -675,7 +726,7 @@ void run(instruction * instr_ptr)
 					{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                         //rm(instr_ptr->tokens[i+1]);
+                         //rm(padName(padded,instr_ptr->tokens[i+1]));
                     }
                     else
                         printf("Error:not enough commands\n");
@@ -684,7 +735,7 @@ void run(instruction * instr_ptr)
 					{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                         //rmdir(instr_ptr->tokens[i+1]);
+                        // FATrmdir(padName(padded,instr_ptr->tokens[i+1]));
                     }
                     else
                         printf("Error:not enough commands\n");
