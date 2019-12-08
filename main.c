@@ -512,11 +512,12 @@ void FATrmdir(char * DIRNAME){
     
 }
 
-char *padName(char *name){
+char *padName(char *destination,char *src){
     
-    name = realloc(name, (strlen(name)+12) * sizeof(char));
+    //name = realloc(name, (strlen(name)+12) * sizeof(char));
     
-    return strcat(name, "           ");
+    sprintf(destination, "%s           ", src);
+    return destination;
 }
 
 int main(int argc, const char * argv[]) {
@@ -525,11 +526,15 @@ int main(int argc, const char * argv[]) {
     FATHead = newHead();
     __fat_fp = _FATOpen();
     
+    char padded[23];
+    
     // test operations
-    fatfile ff = FATOpen("HELLO           ", mode_read);
-    FATClose("HELLO       ");
+    
+    
+    fatfile ff = FATOpen(padName(padded, "HELLO"), mode_read);
+    FATClose(padName(padded, "HELLO"));
     size("GLADDIO     ");
-    size("LONGFILE         ");
+    size(padName(padded, "LONGFILE"));
     cd("RED          ");
     ls(NULL);
     ls("RED001       ");
