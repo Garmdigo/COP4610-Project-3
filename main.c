@@ -97,15 +97,6 @@ node newNode(void *data){
     temp->data = data;
     return temp;
 }
-node addNode(head head, void *data){
-    node last_end = head->end;
-    head->end = newNode(data);
-
-    head->start   = (head->start == NULL) ? head->end : head->start;
-    if (last_end != NULL) { last_end->next = head->end; }
-    return head->end;
-
-}
 
 node addNode(head head, void *data){
     node last_end = head->end;
@@ -116,8 +107,6 @@ node addNode(head head, void *data){
     return head->end;
 
 }
-
-
 
 head newHead(){
     return (head) calloc(sizeof(struct LLHead), 1);
@@ -135,6 +124,17 @@ node pushNode(head head, void *data){
 
     return head->start;
 }
+
+// reverse
+head reverse(head source) {
+    head reversed = newHead();
+    node p = source->start;
+    while(p) {
+        pushNode(reversed, p);
+    }
+    return reversed;
+}
+
 
 //mode 1 = read, 2 = write, 3 = read and write
 enum FileMode{
@@ -195,7 +195,7 @@ FILE * _FATOpen(char *FileName) {
     // return 0;
 }
 
-int cluster(int n){
+int cluster(int n){  //returns offset of data in file
     //hard coded data region value, fix later
     return 1049600 +((n-2) * SEC_PER_CLUS) * BYTES_PER_SEC;
 }
@@ -241,22 +241,6 @@ uint8_t getUInt8(u_int64_t offset) {
 
 }
 
-size_t putUint32(uint32_t offset, uint32_t value){
-    size_t result;
-
-    fseek(__fat_fp, offset, SEEK_SET);
-    result = fwrite(&value, sizeof(uint32_t), 1, __fat_fp);
-    return result;
-}
-
-
-size_t putUint8(uint8_t offset, uint8_t value){
-    size_t result;
-
-    fseek(__fat_fp, offset, SEEK_SET);
-    result = fwrite(&value, sizeof(uint8_t), 1, __fat_fp);
-    return result;
-}
 size_t putUint32(uint32_t offset, uint32_t value){
     size_t result;
 
@@ -320,6 +304,48 @@ void **getFatData(uint32_t at) {
 }
 
 
+//head getClusterList(uint32_t at) {
+//
+//    //uint32_t locations[MaxItems];
+//    //void **data = malloc(MaxItems * sizeof(void *));
+//    //int location_index = 0;
+//    int data_index = 0;
+//    uint32_t currentLocation = at;
+//    head clusterHead = newHead();
+//
+//
+//
+//    //locations[location_index] = currentLocation;
+//    int nextValue = (currentLocation * 4) + FATStart;
+//
+//
+//    while ( (currentLocation != 0xFFFFFF0F&& currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8) ) {
+//        //void *dataPart = get(cluster(currentLocation), 512);
+//        //data[data_index] = dataPart;
+//        uint32_t *value = malloc(sizeof(uint32_t ));
+//        *value = currentLocation;
+//        pushNode(clusterHead, value);
+//
+//
+//        // next data location
+//        currentLocation = getUInt32(nextValue);
+//        //locations[location_index] = currentLocation;
+//        nextValue = (currentLocation * 4) + FATStart;
+//
+//        // advance
+//        data_index++;
+//        //location_index++;
+//        }
+//
+//
+//    //data[data_index] = NULL;
+//    //node result = clusterHead->start;
+//    //free(clusterHead);
+//    return clusterHead;
+//
+//
+//}
+
 head getClusterList(uint32_t at) {
 
     //uint32_t locations[MaxItems];
@@ -335,12 +361,12 @@ head getClusterList(uint32_t at) {
     int nextValue = (currentLocation * 4) + FATStart;
 
 
-    while ( (currentLocation != 0xFFFFFF0F&& currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8) ) {
+    while ( (currentLocation != 0x0fffffff && currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8 && currentLocation != 0x00000000) ) {
         //void *dataPart = get(cluster(currentLocation), 512);
         //data[data_index] = dataPart;
         uint32_t *value = malloc(sizeof(uint32_t ));
         *value = currentLocation;
-        pushNode(clusterHead, value);
+        addNode(clusterHead, value);
 
 
         // next data location
@@ -351,48 +377,7 @@ head getClusterList(uint32_t at) {
         // advance
         data_index++;
         //location_index++;
-        }
-
-
-    //data[data_index] = NULL;
-    //node result = clusterHead->start;
-    //free(clusterHead);
-    return clusterHead;
-
-
-}
-head getClusterList(uint32_t at) {
-
-    //uint32_t locations[MaxItems];
-    //void **data = malloc(MaxItems * sizeof(void *));
-    //int location_index = 0;
-    int data_index = 0;
-    uint32_t currentLocation = at;
-    head clusterHead = newHead();
-
-
-
-    //locations[location_index] = currentLocation;
-    int nextValue = (currentLocation * 4) + FATStart;
-
-
-    while ( (currentLocation != 0xFFFFFF0F&& currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8) ) {
-        //void *dataPart = get(cluster(currentLocation), 512);
-        //data[data_index] = dataPart;
-        uint32_t *value = malloc(sizeof(uint32_t ));
-        *value = currentLocation;
-        pushNode(clusterHead, value);
-
-
-        // next data location
-        currentLocation = getUInt32(nextValue);
-        //locations[location_index] = currentLocation;
-        nextValue = (currentLocation * 4) + FATStart;
-
-        // advance
-        data_index++;
-        //location_index++;
-        }
+    }
 
 
     //data[data_index] = NULL;
@@ -404,9 +389,28 @@ head getClusterList(uint32_t at) {
 }
 
 
+head getFatDataHead(head clusterHead){
+    //    head clusterHead = getClusterList(at);
+    //    head reversed = newHead();
+    head dataHead = newHead();
+    node p = clusterHead->start;
+
+    while(p){
+        // load data
+        uint32_t currentLocation = *(uint32_t *)p->data;
+        void *dataPart = get(cluster(currentLocation), 512);
+        addNode(dataHead, dataPart);
+        //        data[data_index] = dataPart;
+
+    }
+
+    return dataHead;
+}
 
 
-typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
+
+
+typedef void *(*dir_op_t)(struct DirEntry *entry, void *param);
 
 int match_FAT_spec(struct DirEntry *entry,  void *name, uint8_t type){
     // match exact spec;  0xFF for any type
@@ -418,15 +422,51 @@ int match_FAT_spec(struct DirEntry *entry,  void *name, uint8_t type){
 
 }
 
-int directory_do(dir_op_t item_op, uint32_t dir, void *param){
+void *directory_do(dir_op_t item_op, uint32_t dir, void *param){
 
-    int i,j,exiting = 0;
+    int i,j;
+    void *exiting = NULL;
     int dotdirs = -1;
     void**data = getFatData(currentDirectory);
+
 
     for(i = 0; i < MaxItems; i++){
         if(data[i] == NULL) { break; }
         struct DirEntry *entries = data[i];
+        //        printf("DirEntry size: %lu", sizeof(DirEntry));
+        for(j = 0; j < 16; j++) {
+            if (entries[j].attributes == 0x0f) { continue; }
+            if (entries[j].fileName[0] ==  0 ) { exiting = (void *)-1; break; }
+            if (entries[j].fileName[0] == '.') {
+                if (dotdirs < 1) {
+                    dotdirs += 1;
+                } else {
+                    exiting = (void *)-1;
+                    break;
+                }
+            }
+
+            // operated...
+            if ((exiting = item_op(&entries[j], param))) { break; }
+
+        }
+        if (exiting) { break; }
+    }
+    return exiting;
+}
+
+int directory_do2(dir_op_t item_op, uint32_t dir, void *param){
+
+    int i,j,exiting = 0;
+    int dotdirs = -1;
+    //    void**data = getFatData(currentDirectory);
+    head h = getClusterList(currentDirectory);
+    node p = h->start;
+
+    while(p) {
+        //    for(i = 0; i < MaxItems; i++){
+        //        if(data[i] == NULL) { break; }
+        struct DirEntry *entries = p->data; //data[i];
         //        printf("DirEntry size: %lu", sizeof(DirEntry));
         for(j = 0; j < 16; j++) {
             if (entries[j].attributes == 0x0f) { continue; }
@@ -445,6 +485,7 @@ int directory_do(dir_op_t item_op, uint32_t dir, void *param){
 
         }
         if (exiting) { break; }
+        p = p->next;
     }
     return exiting;
 }
@@ -497,24 +538,25 @@ void *dir_entry (struct DirEntry *entry, void *param)  {
     return 0;
 }
 
-int isOpen(char * fileName){
-    //check if file is in the open list
-    node p = FATHead->start;
-    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, fileName);
 
-    while (p) {
-        if ((uint32_t)p->data == getFirstCluster(entry->Hi, entry->Lo)) {
-            printf("file was open");
-            return 1; //found cluster in list of open files
-        }
-    }
-    return 0; //not found
-}
+//int isOpen(char * fileName){
+//    //check if file is in the open list
+//    node p = FATHead->start;
+////    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, fileName);
+//
+//    while (p) {
+//        if ((uint32_t)p->data == getFirstCluster(entry->Hi, entry->Lo)) {
+//            printf("file was open");
+//            return 1; //found cluster in list of open files
+//        }
+//    }
+//    return 0; //not found
+//}
 
 
 int dir_change(struct DirEntry *entry, void *param)  {
     // directories matching name with blanks padded...
-    printf("%.11s\n", entry->fileName);
+    //    printf("%.11s\n", entry->fileName);
     uint32_t newdir = 0;
 
     //    if ( (entry->attributes == 0x10) &&
@@ -523,7 +565,7 @@ int dir_change(struct DirEntry *entry, void *param)  {
         // traverse to directory
         // TODO: Setup the directory properly...
         newdir =  getFirstCluster(entry->Hi, entry->Lo);
-        printf("*** New Cluster Number: %d\n", newdir);
+        //        printf("*** New Cluster Number: %d\n", newdir);
         //        newdir = 3;
 
 
@@ -641,6 +683,14 @@ int create(char * FILENAME){
     //create a file of size 0 in cwd
 
     // 1) guard - filename not in directory
+    uint32_t cluster = (uint32_t)directory_do(dir_get_cluster,currentDirectory, FILENAME);
+    //TODO: error if not found
+    if (cluster == 0) {
+        // file was found, handle error here:
+        printf("ERROR: %.11s - file not found.\n", FILENAME);
+        return -1;
+    }
+
 
 
     // 2)
@@ -707,18 +757,17 @@ void FATClose(char * FILENAME){
 
     }
 
-
-
 }
-void FATRead(char * FILENAME, int OFFSET, int SIZE){  //THIS IS THE read() FUNCTION
-    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
 
+void FATRead(char * FILENAME, int OFFSET, int SIZE){
 
-    if(entry != 0 && entry->attributes != 0x0f && isOpen(getFirstCluster(entry->Hi, entry->Lo)) && OFFSET < entry->fileSize){
-        //file is open
-
-
-    }
+    //    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+    //
+    //    int op = isOpen(getFirstCluster(entry->Hi, entry->Lo));
+    //    if(entry != 0 && entry->attributes != 0x0f && isOpen(getFirstCluster(entry->Hi, entry->Lo)) && OFFSET < entry->fileSize){
+    //        //file is open
+    //
+    //    }
 
 }
 
@@ -727,24 +776,32 @@ void FATWrite(char * FILENAME, int OFFSET){
 }
 
 void rm(char * FILENAME){
-    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+
+    struct DirEntry *entry = (void *)directory_do(dir_entry,currentDirectory, FILENAME);
     head list;
     node p;
 
-    list = getClusterList(getFirstCluster(entry->Hi, entry->Lo));
+    uint32_t firstCluster = getFirstCluster(entry->Hi, entry->Lo);
+
+    list = getClusterList(firstCluster);
 
     p = list->start;
 
     while(p){
-        putUint32(*(uint32_t *)p->data,0x00000000); //unlink list; put 0's in FAT entries
+        uint32_t currentLocation = *(uint32_t *)p->data;
+        //        uint32_t offset = (*(uint32_t *)p->data * 4) + FATStart;
+        uint32_t cl = cluster(currentLocation);
+        putUint32(cl,0x00000000); //unlink list; put 0's in FAT entries
         p = p->next;
-        }
+    }
 
     //entry->fileName
+    //    putUint8(cl,0x00);
 
 
     printf("about to remove file %s", entry->fileName);
 }
+
 void FATrmdir(char * DIRNAME){
 
 }
@@ -785,6 +842,7 @@ int main(int argc, const char * argv[]) {
 //    FATexit();
 //    return 0;
 //    -----parser-----
+
     if(!argv[1] || strlen(argv[1]) < 1)
     {
         printf("Error:Couldn't import file\n");
@@ -803,6 +861,10 @@ int main(int argc, const char * argv[]) {
     instruction instr;
     instr.tokens = NULL;
     instr.numTokens = 0;
+
+    //info();
+    //ls(NULL);
+
     while (1) {
         printf("Enter Command:");
         do {
@@ -876,127 +938,123 @@ void printTokens(instruction* instr_ptr)
 void run(instruction * instr_ptr)
 {
     char padded[23];
-	int i=0;
-		if ((instr_ptr->tokens)[i] != NULL)
-			{
-				if(strcmp(instr_ptr->tokens[i], "exit")==0)
-				{
-                    FATexit();
+    int i=0;
+    if ((instr_ptr->tokens)[i] != NULL)
+    {
+        if(strcmp(instr_ptr->tokens[i], "exit")==0)
+        {
+            FATexit();
 
-                }
-					else if (strcmp(instr_ptr->tokens[i], "info")==0)
-					{
+        }
+        else if (strcmp(instr_ptr->tokens[i], "info")==0)
+        {
+            info();
+        }
+        else if (strcmp(instr_ptr->tokens[i], "size")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                size(padName(padded,instr_ptr->tokens[i+1]));
+            }//
+            else
+                printf("Error:not enough arguments\n");
 
-                       if(instr_ptr->tokens[i+1]==NULL)
-                    {
-                       info();
-                    }
+        }
+        else if (strcmp(instr_ptr->tokens[i], "ls")==0)
+        {
 
-                    }
-					else if (strcmp(instr_ptr->tokens[i], "size")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                          size(padName(padded,instr_ptr->tokens[i+1]));
-                    }//
-                    else
-                        printf("Error:not enough commands\n");
+         if(instr_ptr->tokens[i+1]!=NULL)
+            {
+              ls(padName(padded,instr_ptr->tokens[i+1]));
+           }
+         else
+            ls(NULL);
+        }
+        else if (strcmp(instr_ptr->tokens[i], "cd")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                cd(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "creat")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                creat(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "mkdir")==0)
+        {
 
-					}
-					else if (strcmp(instr_ptr->tokens[i], "ls")==0)
-					{
-                      if(instr_ptr->tokens[i+1]!=NULL)
-                        {
-                          ls(padName(padded,instr_ptr->tokens[i+1]));
-                        }
-                        else
-                        ls(NULL);
-					}
-					else if (strcmp(instr_ptr->tokens[i], "cd")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                       cd(padName(padded,instr_ptr->tokens[i+1]));
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "creat")==0)
-				{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                          //creat(padded(padded,instr_ptr->tokens[i+1]));
-                    }
-                     else
-                        printf("Error:not enough commands\n");
-				}
-				else if (strcmp(instr_ptr->tokens[i], "mkdir")==0)
-					{
-
-					 if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                          //mkdir(padded(padded,instr_ptr->tokens[i+1]));
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-                    }
-					else if (strcmp(instr_ptr->tokens[i], "open")==0)
-					{
-					 if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL)
-                    {
-                          //FATOpen((instr_ptr->tokens[i+1],instr_ptr->tokens[i+2]));
-                    }
-                      else
-                        printf("Error:not enough commands\n ");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "close")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                          //FATClose(padName(padded,instr_ptr->tokens[i+1]));
-                    }
-                     else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "read")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
-                    {
-                       //FATRead(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-						}
-					else if (strcmp(instr_ptr->tokens[i], "write")==0)
-					{
-					 if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
-                    {
-                        //FATWrite(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
-                    }
-                     else
-                        printf("Error:not enough commands\n");
-					}
-					else if (strcmp(instr_ptr->tokens[i], "rm")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                         //rm(padName(padded,instr_ptr->tokens[i+1]));
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-					}
-                    else if (strcmp(instr_ptr->tokens[i], "rmdir")==0)
-					{
-                    if(instr_ptr->tokens[i+1]!=NULL)
-                    {
-                        // FATrmdir(padName(padded,instr_ptr->tokens[i+1]));
-                    }
-                    else
-                        printf("Error:not enough commands\n");
-					}
-					else
-                        printf("No valid commmand given. Try again.\n");
-			}
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                //mkdir(padded(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "open")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL)
+            {
+                //FATOpen(padName(padded,instr_ptr->tokens[i+1]),instr_ptr->tokens[i+2]);
+            }
+            else
+                printf("Error:not enough arguments\n ");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "close")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                FATClose(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "read")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
+            {
+               // FATRead(padName(padded,instr_ptr->tokens[i+1]),atoi(instr_ptr->tokens[i+2]),atoi(instr_ptr->tokens[i+3]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "write")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL&&instr_ptr->tokens[i+4]!=NULL)
+            {
+                //FATWrite(padName(padded,instr_ptr->tokens[i+1]),atoi(instr_ptr->tokens[i+2]),instr_ptr->tokens[i+3],instr_ptr->tokens[i+4]);
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "rm")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                //rm(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "rmdir")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                // FATrmdir(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else
+            printf("No valid commmand given. Try again.\n");
+    }
 
 }
 void clearInstruction(instruction* instr_ptr)
