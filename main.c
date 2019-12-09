@@ -769,6 +769,16 @@ void FATRead(char * FILENAME, int OFFSET, int SIZE){
     //
     //    }
 
+void FATRead(char * FILENAME, int OFFSET, int SIZE){
+
+    //    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+    //
+    //    int op = isOpen(getFirstCluster(entry->Hi, entry->Lo));
+    //    if(entry != 0 && entry->attributes != 0x0f && isOpen(getFirstCluster(entry->Hi, entry->Lo)) && OFFSET < entry->fileSize){
+    //        //file is open
+    //
+    //    }
+
 }
 
 void FATWrite(char * FILENAME, int OFFSET){
@@ -801,6 +811,8 @@ void rm(char * FILENAME){
 
     printf("about to remove file %s", entry->fileName);
 }
+
+void FATrmdir(char * DIRNAME){
 
 void FATrmdir(char * DIRNAME){
 
