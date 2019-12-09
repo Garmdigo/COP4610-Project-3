@@ -573,7 +573,12 @@ int create(char * FILENAME){
     //create a file of size 0 in cwd
     
     // 1) guard - filename not in directory
-    
+    uint32_t cluster = directory_do(dir_get_cluster,currentDirectory, FILENAME);
+    //TODO: error if not found
+    if (cluster == 0) {
+        // file was found, handle error here:
+        printf("ERROR: %.11s - file not found.\n", FILENAME);
+        return NULL;
     
     // 2)
     
@@ -583,6 +588,17 @@ int create(char * FILENAME){
 
 void  FATmkdir(char * DIRNAME){
     
+    // 1) guard - filename not in directory
+    uint32_t cluster = directory_do(dir_get_cluster,currentDirectory, DIRNAME);
+    //TODO: error if not found
+    if (cluster == 0) {
+        // file was found, handle error here:
+        printf("ERROR: %.11s - directory not found.\n", DIRNAME);
+        return NULL;
+        
+    
+    
+   
 }
 
 fatfile FATOpen(char * FILENAME, enum FileMode mode){
