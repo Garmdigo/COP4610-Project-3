@@ -6,7 +6,7 @@ To compile, type "make" in the project directory. The image file can be specifie
 Division of labor:<br/>
 Diego: Parser and integrating the functions together.<br/>
 Samuel:FAT32 Functions.<br/>
-Christian :  <br/>
+Christian :mkdir and creat functions <br/>
 
 Unfinished portionis and bugs, other notes:
 
