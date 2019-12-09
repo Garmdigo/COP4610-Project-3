@@ -68,8 +68,8 @@ struct DirEntry{
 
 }__attribute__((packed)) DirEntry;
 struct LList {
-    void *data;
     struct LList *next;
+    void *data;
 };
 typedef struct LList *node; //
 
@@ -88,8 +88,17 @@ node newNode(void *data){
     temp->data = data;
     return temp;
 }
+node addNode(head head, void *data){
+    node last_end = head->end;
+    head->end = newNode(data);
 
-head addNode(head head, void *data){
+    head->start   = (head->start == NULL) ? head->end : head->start;
+    if (last_end != NULL) { last_end->next = head->end; }
+    return head->end;
+
+}
+
+/*head addNode(head head, void *data){
     node last_end = head->end;
     head->end = newNode(data);
 
@@ -103,9 +112,24 @@ head addNode(head head, void *data){
 
     return head;
 }
+*/
+
 
 head newHead(){
     return (head) calloc(sizeof(struct LLHead), 1);
+}
+
+node pushNode(head head, void *data){
+    node temp = newNode(data);
+
+    temp->next = head->start;
+    head->start=temp;
+
+    if(head->end == NULL){
+        head->end = temp;
+    }
+
+    return head->start;
 }
 
 //mode 1 = read, 2 = write, 3 = read and write
@@ -206,6 +230,22 @@ uint8_t getUInt8(u_int64_t offset) {
     return result;
 
 }
+size_t putUint32(uint32_t offset, uint32_t value){
+    size_t result;
+
+    fseek(__fat_fp, offset, SEEK_SET);
+    result = fwrite(&value, sizeof(uint32_t), 1, __fat_fp);
+    return result;
+}
+
+
+size_t putUint8(uint8_t offset, uint8_t value){
+    size_t result;
+
+    fseek(__fat_fp, offset, SEEK_SET);
+    result = fwrite(&value, sizeof(uint8_t), 1, __fat_fp);
+    return result;
+}
 
 void memcpyX(void *target, const void *source, size_t size) {
 
@@ -250,6 +290,48 @@ void **getFatData(uint32_t at) {
 
 
 }
+head getClusterList(uint32_t at) {
+
+    //uint32_t locations[MaxItems];
+    //void **data = malloc(MaxItems * sizeof(void *));
+    //int location_index = 0;
+    int data_index = 0;
+    uint32_t currentLocation = at;
+    head clusterHead = newHead();
+
+
+
+    //locations[location_index] = currentLocation;
+    int nextValue = (currentLocation * 4) + FATStart;
+
+
+    while ( (currentLocation != 0xFFFFFF0F&& currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8) ) {
+        //void *dataPart = get(cluster(currentLocation), 512);
+        //data[data_index] = dataPart;
+        uint32_t *value = malloc(sizeof(uint32_t ));
+        *value = currentLocation;
+        pushNode(clusterHead, value);
+
+
+        // next data location
+        currentLocation = getUInt32(nextValue);
+        //locations[location_index] = currentLocation;
+        nextValue = (currentLocation * 4) + FATStart;
+
+        // advance
+        data_index++;
+        //location_index++;
+        }
+
+
+    //data[data_index] = NULL;
+    //node result = clusterHead->start;
+    //free(clusterHead);
+    return clusterHead;
+
+
+}
+
 
 typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
 
@@ -304,6 +386,19 @@ void *dir_entry (struct DirEntry *entry, void *param)  {
         return entry;}
 
     return 0;
+}
+int isOpen(char * fileName){
+    //check if file is in the open list
+    node p = FATHead->start;
+    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, fileName);
+
+    while (p) {
+        if ((uint32_t)p->data == getFirstCluster(entry->Hi, entry->Lo)) {
+            printf("file was open");
+            return 1; //found cluster in list of open files
+        }
+    }
+    return 0; //not found
 }
 int dir_change(struct DirEntry *entry, void *param)  {
     // directories matching name with blanks padded...
@@ -494,9 +589,20 @@ void FATClose(char * FILENAME){
         last = p; p = p->next;
 
     }
-}
 
-void FATRead(char * FILENAME, int OFFSET){
+
+
+}
+void FATRead(char * FILENAME, int OFFSET, int SIZE){  //THIS IS THE read() FUNCTION
+
+    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+
+
+    if(entry != 0 && entry->attributes != 0x0f && isOpen(getFirstCluster(entry->Hi, entry->Lo)) && OFFSET < entry->fileSize){
+        //file is open
+
+
+    }
 
 }
 
@@ -506,15 +612,23 @@ void FATWrite(char * FILENAME, int OFFSET){
 
 void rm(char * FILENAME){
     struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
-    //TODO: error if not found
-    //    if (entry == 0) {
-    //        // file was found, handle error here:
-    //        printf("ERROR: %.11s - file not found.\n", FILENAME);
-    //    }
-    //
+    head list;
+    node p;
+
+    list = getClusterList(getFirstCluster(entry->Hi, entry->Lo));
+
+    p = list->start;
+
+    while(p){
+        putUint32(*(uint32_t *)p->data,0x00000000); //unlink list; put 0's in FAT entries
+        p = p->next;
+        }
+
+    //entry->fileName
+
+
     printf("about to remove file %s", entry->fileName);
 }
-
 void FATrmdir(char * DIRNAME){
 
 }
@@ -632,11 +746,11 @@ void run(instruction * instr_ptr)
 					else if (strcmp(instr_ptr->tokens[i], "info")==0)
 					{
 
-                       if(instr_ptr->tokens[i+1]!=NULL)
+                       if(instr_ptr->tokens[i+1]==NULL)
                     {
-                       info(padName(padded,instr_ptr->tokens[i+1]));
-                        printf("Error:too many commands\n");
+                       info();
                     }
+
                     }
 					else if (strcmp(instr_ptr->tokens[i], "size")==0)
 					{
@@ -654,9 +768,8 @@ void run(instruction * instr_ptr)
                         {
                           ls(padName(padded,instr_ptr->tokens[i+1]));
                         }
-
                         else
-                        printf("Error:not enough commands\n");
+                        ls(NULL);
 					}
 					else if (strcmp(instr_ptr->tokens[i], "cd")==0)
 					{
@@ -671,7 +784,7 @@ void run(instruction * instr_ptr)
 				{
                     if(instr_ptr->tokens[i+1]!=NULL)
                     {
-                          //creat(padded(padded,instr_ptr->tokens[i+1])_;
+                          //creat(padded(padded,instr_ptr->tokens[i+1]));
                     }
                      else
                         printf("Error:not enough commands\n");
