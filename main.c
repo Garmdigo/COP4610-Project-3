@@ -172,7 +172,7 @@ FILE * _FATOpen(char *FileName) {
     FILE *fp;
 #ifdef __APPLE__
     
-    fp = fopen ("/Users/walter/Downloads/fat32.img","r+");
+    fp = fopen ("/Users/samuelparmer/Desktop/C++ Projects/C Projects/FAT32/FAT32/fat32.img","r+");
     return fp;
     
 #endif
@@ -997,7 +997,7 @@ void run(instruction * instr_ptr)
         {
             if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL)
             {
-                //FATOpen((instr_ptr->tokens[i+1],instr_ptr->tokens[i+2]));
+                FATOpen(padName(padded,instr_ptr->tokens[i+1]), instr_ptr->tokens[i+2]);
             }
             else
                 printf("Error:not enough arguments\n ");
@@ -1006,7 +1006,7 @@ void run(instruction * instr_ptr)
         {
             if(instr_ptr->tokens[i+1]!=NULL)
             {
-                //FATClose(padName(padded,instr_ptr->tokens[i+1]));
+                FATClose(padName(padded,instr_ptr->tokens[i+1]));
             }
             else
                 printf("Error:not enough arguments\n");
