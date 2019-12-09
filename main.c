@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdint.h>
 
 // decls
 void ls(char * DIRNAME);
@@ -53,6 +54,7 @@ typedef struct metaData{
     int jmpBoot;
     int OEMName;
     int BPB_TotSec32;
+    int BPBRootClus;
     
 }metaData;
 
@@ -110,6 +112,19 @@ head newHead(){
     return (head) calloc(sizeof(struct LLHead), 1);
 }
 
+node pushNode(head head, void *data){
+    node temp = newNode(data);
+    
+    temp->next = head->start;
+    head->start=temp;
+    
+    if(head->end == NULL){
+        head->end = temp;
+    }
+    
+    return head->start;
+}
+
 //mode 1 = read, 2 = write, 3 = read and write
 enum FileMode{
     mode_read = 1,
@@ -129,20 +144,45 @@ typedef struct FileEntry *fatfile;
 
 head FATHead;
 metaData BootSector;
+typedef struct
+{
+    char** tokens;
+    int numTokens;
+} instruction;
+
+void addToken(instruction* instr_ptr, char* tok);
+void printTokens(instruction* instr_ptr);
+void clearInstruction(instruction* instr_ptr);
+void addNull(instruction* instr_ptr);
+void run(instruction * instr_ptr);
 //char *FileName;
 
-FILE * _FATOpen() {
-#ifdef __APPLE__
+FILE * _FATOpen(char *FileName) {
     FILE *fp;
+#ifdef __APPLE__
+    
     fp = fopen ("/Users/samuelparmer/Desktop/C++ Projects/C Projects/FAT32/FAT32/fat32.img","r+");
     return fp;
     
 #endif
+
+    // fp = fopen ("/home/majors/parmer/OS_P3/fat32.img","r+");
+    fp = fopen(FileName,"r+");
+    if(!fp)
+    {
+        printf("Error: File name %s does not exist.\n", FileName);
+        exit(0);
+    }
+    else
+    {
+        printf("File transfer: Successful\n");
+        return fp;
+    }
+    
     
     //implemet with argv[0] param on linprog
-    return 0;
+    // return 0;
 }
-
 
 int cluster(int n){
     //hard coded data region value, fix later
@@ -152,6 +192,7 @@ int cluster(int n){
 uint16_t getFirstCluster(uint16_t hi, uint16_t lo) {
     return (hi<<8) | lo;
 }
+
 
 void *get(u_int64_t offset, int length){
     
@@ -188,6 +229,24 @@ uint8_t getUInt8(u_int64_t offset) {
     return result;
     
 }
+
+size_t putUint32(uint32_t offset, uint32_t value){
+    size_t result;
+    
+    fseek(__fat_fp, offset, SEEK_SET);
+    result = fwrite(&value, sizeof(uint32_t), 1, __fat_fp);
+    return result;
+}
+
+
+size_t putUint8(uint8_t offset, uint8_t value){
+    size_t result;
+    
+    fseek(__fat_fp, offset, SEEK_SET);
+    result = fwrite(&value, sizeof(uint8_t), 1, __fat_fp);
+    return result;
+}
+
 
 void memcpyX(void *target, const void *source, size_t size) {
     
@@ -234,6 +293,48 @@ void **getFatData(uint32_t at) {
 }
 
 
+head getClusterList(uint32_t at) {
+    
+    //uint32_t locations[MaxItems];
+    //void **data = malloc(MaxItems * sizeof(void *));
+    //int location_index = 0;
+    int data_index = 0;
+    uint32_t currentLocation = at;
+    head clusterHead = newHead();
+    
+    
+    
+    //locations[location_index] = currentLocation;
+    int nextValue = (currentLocation * 4) + FATStart;
+    
+    
+    while ( (currentLocation != 0xFFFFFF0F&& currentLocation != 0xFFFFFFFF && currentLocation != 0x0FFFFFF8) ) {
+        //void *dataPart = get(cluster(currentLocation), 512);
+        //data[data_index] = dataPart;
+        uint32_t *value = malloc(sizeof(uint32_t ));
+        *value = currentLocation;
+        pushNode(clusterHead, value);
+        
+        
+        // next data location
+        currentLocation = getUInt32(nextValue);
+        //locations[location_index] = currentLocation;
+        nextValue = (currentLocation * 4) + FATStart;
+        
+        // advance
+        data_index++;
+        //location_index++;
+        }
+    
+    
+    //data[data_index] = NULL;
+    //node result = clusterHead->start;
+    //free(clusterHead);
+    return clusterHead;
+    
+    
+}
+
 
 
 typedef int (*dir_op_t)(struct DirEntry *entry, void *param);
@@ -279,6 +380,42 @@ int directory_do(dir_op_t item_op, uint32_t dir, void *param){
     return exiting;
 }
 
+
+//struct DirEntry *getLastDirEntry(dir_op_t item_op){
+//
+//    int i,j,exiting = 0;
+//    int dotdirs = -1;
+//    void**data = getFatData(currentDirectory);
+//
+//    for(i = 0; i < MaxItems; i++){
+//        if(data[i] == NULL) { break; }
+//        struct DirEntry *entries = data[i];
+//        //        printf("DirEntry size: %lu", sizeof(DirEntry));
+//        for(j = 0; j < 16; j++) {
+//            if (entries[j].attributes == 0x0f) { continue; }
+//            if (entries[j].fileName[0] ==  0 ) { exiting = -1; break; }
+//            if (entries[j].fileName[0] == '.') {
+//                if (dotdirs < 1) {
+//                    dotdirs += 1;
+//                } else {
+//                    exiting = j-1;
+//                    break;
+//                }
+//            }
+//
+//            // operated...
+//            //if ((exiting = item_op(&entries[j], param))) { break; }
+//
+//        }
+//        if (exiting) { break; }
+//    }
+//
+//    if(exiting > 0){
+//        return entries[j];
+//    }
+//
+//}
+
 int dir_print (struct DirEntry *entry, void *param)  {
     printf("%.11s\n", entry->fileName); return 0;
 }
@@ -290,6 +427,22 @@ void *dir_entry (struct DirEntry *entry, void *param)  {
     
     return 0;
 }
+
+
+int isOpen(char * fileName){
+    //check if file is in the open list
+    node p = FATHead->start;
+    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, fileName);
+    
+    while (p) {
+        if ((uint32_t)p->data == getFirstCluster(entry->Hi, entry->Lo)) {
+            printf("file was open");
+            return 1; //found cluster in list of open files
+        }
+    }
+    return 0; //not found
+}
+
 
 int dir_change(struct DirEntry *entry, void *param)  {
     // directories matching name with blanks padded...
@@ -368,19 +521,24 @@ void info(){
     BootSector.RSVDSecCount = getUInt16(14);
     BootSector.FATSize = getUInt32(36);
     BootSector.BPB_RootEntCnt = getUInt16(17);
-    BootSector.BPB_TotSec32 = getUInt16(32);
+    BootSector.BPB_TotSec32 = getUInt32(32);
+    BootSector.BPBRootClus = getUInt32(44);
     
     printf("Bytes per sector: %d\n",BootSector.BtyesPerSec);
     printf("Sectors per cluster: %d\n",BootSector.secsPerCluster);
     printf("Reserved sector count: %d\n",BootSector.RSVDSecCount);
     printf("Number of FATS: %d\n",BootSector.FATS);
+    printf("Total sectors: %d\n",BootSector.BPB_TotSec32);
     printf("Size of FATS: %d\n",BootSector.FATSize);
-    printf("Root entries count: %d\n",BootSector.BPB_RootEntCnt); //use to calc how big root dir is, each entry is 32 bytes
-    printf("TotSec32: %d\n",BootSector.BPB_TotSec32);
+    printf("Root cluster: %d\n",BootSector.BPBRootClus); //use to calc how big root dir is, each entry is 32 bytes
+    
     
     
     
 }
+
+
+
 
 void size(char * FILENAME){
     //print size of file in the current working dir in bytes, error if not found.
@@ -399,7 +557,7 @@ void ls(char * DIRNAME){
     //list name of all directories in the current dir including . and ..
     
     if (DIRNAME == NULL) {
-        directory_do(dir_print,     currentDirectory, NULL);
+        directory_do(dir_print, currentDirectory, NULL);
     } else {
         directory_do(dir_print_sub, currentDirectory, DIRNAME);
     }
@@ -483,14 +641,19 @@ void FATClose(char * FILENAME){
     
     
     
-    
-    
-    
-    
 }
 
-void FATRead(char * FILENAME, int OFFSET){
-    
+void FATRead(char * FILENAME, int OFFSET, int SIZE){  //THIS IS THE read() FUNCTION
+
+    struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
+
+
+    if(entry != 0 && entry->attributes != 0x0f && isOpen(getFirstCluster(entry->Hi, entry->Lo)) && OFFSET < entry->fileSize){
+        //file is open
+
+
+    }
+
 }
 
 void FATWrite(char * FILENAME, int OFFSET){
@@ -499,12 +662,21 @@ void FATWrite(char * FILENAME, int OFFSET){
 
 void rm(char * FILENAME){
     struct DirEntry *entry = directory_do(dir_entry,currentDirectory, FILENAME);
-    //TODO: error if not found
-    //    if (entry == 0) {
-    //        // file was found, handle error here:
-    //        printf("ERROR: %.11s - file not found.\n", FILENAME);
-    //    }
-    //
+    head list;
+    node p;
+    
+    list = getClusterList(getFirstCluster(entry->Hi, entry->Lo));
+    
+    p = list->start;
+    
+    while(p){
+        putUint32(*(uint32_t *)p->data,0x00000000); //unlink list; put 0's in FAT entries
+        p = p->next;
+        }
+    
+    //entry->fileName
+    
+    
     printf("about to remove file %s", entry->fileName);
 }
 
@@ -514,32 +686,258 @@ void FATrmdir(char * DIRNAME){
 
 char *padName(char *destination,char *src){
     
-    //name = realloc(name, (strlen(name)+12) * sizeof(char));
-    
     sprintf(destination, "%s           ", src);
     return destination;
 }
+
+
 
 int main(int argc, const char * argv[]) {
     
     // init globals
     FATHead = newHead();
-    __fat_fp = _FATOpen();
-    
+    __fat_fp = _FATOpen("");
+
     char padded[23];
-    
+
     // test operations
-    
-    
+
+
     fatfile ff = FATOpen(padName(padded, "HELLO"), mode_read);
+    ////isOpen(padName(padded, "HELLO"));
+
     FATClose(padName(padded, "HELLO"));
+    //FATRead(padName(padded, "HELLO"));
+
+    info();
     size("GLADDIO     ");
     size(padName(padded, "LONGFILE"));
     cd("RED          ");
     ls(NULL);
     ls("RED001       ");
-    
-    
+
+
     FATexit();
     return 0;
+//    -----parser-----
+//    if(!argv[1] || strlen(argv[1]) < 1)
+//    {
+//        printf("Error:Couldn't import file\n");
+//        printf("Using default parameters.\n");
+//        __fat_fp = _FATOpen("fat32.img");
+//    }
+//    else
+//    {
+//        __fat_fp = _FATOpen(argv[1]);
+//        printf("File was imported\n");
+//    }
+//    FATHead = newHead();
+//    //__fat_fp = _FATOpen();
+//    char* token = NULL;
+//    char* temp = NULL;
+//    instruction instr;
+//    instr.tokens = NULL;
+//    instr.numTokens = 0;
+//    while (1) {
+//        printf("Enter Command:");
+//        do {
+//            scanf("%ms",&token);
+//            temp = (char*)malloc((strlen(token) + 1) * sizeof(char));
+//            int i;
+//            int start = 0;
+//            addToken(&instr,token);
+//            start = i + 1;
+//
+//            if (start < strlen(token)) {
+//                memcpy(temp, token + start, strlen(token) - start);
+//                temp[i-start] = '\0';
+//                addToken(&instr, temp);
+//            }
+//            free(token);
+//            free(temp);
+//
+//            token = NULL;
+//            temp = NULL;
+//
+//
+//        } while ('\n' != getchar());    //until end of line is reached
+//        addNull(&instr);
+//        //  printTokens(&instr);
+//        run(&instr);
+//
+//        clearInstruction(&instr);
+//    }
+//
+//    return 0;
+}
+
+
+void addToken(instruction* instr_ptr, char* tok)
+{
+    //extend token array to accomodate an additional token
+    if (instr_ptr->numTokens == 0)
+        instr_ptr->tokens = (char**) malloc(sizeof(char*));
+    else
+        instr_ptr->tokens = (char**) realloc(instr_ptr->tokens, (instr_ptr->numTokens+1) * sizeof(char*));
+    
+    //allocate char array for new token in new slot
+    instr_ptr->tokens[instr_ptr->numTokens] = (char *)malloc((strlen(tok)+1) * sizeof(char));
+    strcpy(instr_ptr->tokens[instr_ptr->numTokens], tok);
+    
+    instr_ptr->numTokens++;
+}
+
+void addNull(instruction* instr_ptr)
+{
+    //extend token array to accomodate an additional token
+    if (instr_ptr->numTokens == 0)
+        instr_ptr->tokens = (char**)malloc(sizeof(char*));
+    else
+        instr_ptr->tokens = (char**)realloc(instr_ptr->tokens, (instr_ptr->numTokens+1) * sizeof(char*));
+    
+    instr_ptr->tokens[instr_ptr->numTokens] = (char*) NULL;
+    instr_ptr->numTokens++;
+}
+
+void printTokens(instruction* instr_ptr)
+{
+    int i;
+    printf("Tokens:\n");
+    for (i = 0; i < instr_ptr->numTokens; i++) {
+        if ((instr_ptr->tokens)[i] != NULL)
+            printf("%s\n", (instr_ptr->tokens)[i]);
+    }
+}
+void run(instruction * instr_ptr)
+{
+    char padded[23];
+    int i=0;
+    if ((instr_ptr->tokens)[i] != NULL)
+    {
+        if(strcmp(instr_ptr->tokens[i], "exit")==0)
+        {
+            FATexit();
+            
+        }
+        else if (strcmp(instr_ptr->tokens[i], "info")==0)
+        {
+            
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                info(padName(padded,instr_ptr->tokens[i+1]));
+                printf("Error:too many arguments\n");
+            }
+        }
+        else if (strcmp(instr_ptr->tokens[i], "size")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                size(padName(padded,instr_ptr->tokens[i+1]));
+            }//
+            else
+                printf("Error:not enough arguments\n");
+            
+        }
+        else if (strcmp(instr_ptr->tokens[i], "ls")==0)
+        {
+            
+                ls(padName(padded,instr_ptr->tokens[i+1]));
+        }
+        else if (strcmp(instr_ptr->tokens[i], "cd")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                cd(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "creat")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                //creat(padded(padded,instr_ptr->tokens[i+1])_;
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "mkdir")==0)
+        {
+            
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                //mkdir(padded(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "open")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL)
+            {
+                //FATOpen((instr_ptr->tokens[i+1],instr_ptr->tokens[i+2]));
+            }
+            else
+                printf("Error:not enough arguments\n ");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "close")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                //FATClose(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "read")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
+            {
+                //FATRead(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "write")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL&&instr_ptr->tokens[i+2]!=NULL&&instr_ptr->tokens[i+3]!=NULL)
+            {
+                //FATWrite(instr_ptr->tokens[i+1],instr_ptr->tokens[i+2],instr_ptr->tokens[i+3]);
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "rm")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                //rm(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else if (strcmp(instr_ptr->tokens[i], "rmdir")==0)
+        {
+            if(instr_ptr->tokens[i+1]!=NULL)
+            {
+                // FATrmdir(padName(padded,instr_ptr->tokens[i+1]));
+            }
+            else
+                printf("Error:not enough arguments\n");
+        }
+        else
+            printf("No valid commmand given. Try again.\n");
+    }
+    
+}
+void clearInstruction(instruction* instr_ptr)
+{
+    int i;
+    for (i = 0; i < instr_ptr->numTokens; i++)
+        free(instr_ptr->tokens[i]);
+    
+    free(instr_ptr->tokens);
+    
+    instr_ptr->tokens = NULL;
+    instr_ptr->numTokens = 0;
 }
